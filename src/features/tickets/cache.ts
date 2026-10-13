@@ -21,7 +21,7 @@ export function writeTicketToCache(queryClient: QueryClient, ticket: Ticket): vo
 export function writeCommentToCache(queryClient: QueryClient, comment: Comment): void {
   queryClient.setQueryData<TicketDetail>(ticketKeys.detail(comment.ticketId), (detail) =>
     detail && !detail.comments.some((existing) => existing.id === comment.id)
-      ? { ...detail, comments: [...detail.comments, comment], commentCount: detail.commentCount + 1, updatedAt: comment.createdAt }
+      ? { ...detail, comments: [...detail.comments, comment], updatedAt: comment.createdAt }
       : detail,
   );
 }

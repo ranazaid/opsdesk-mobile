@@ -5,7 +5,7 @@ import { ApiError } from '@/api/errors';
 import { Outbox, OUTBOX_STORAGE_KEY, type OutboxEntry, type OutboxOperation } from '../outbox';
 import { applyPendingToTicket, pendingCommentsFor } from '../pending';
 
-const author = { id: 'usr_agent', name: 'Ayesha Khan' };
+const author = { id: 'usr_agent', name: 'Aisha Khan' };
 const comment = (ticketId: string, body: string, clientId = `c-${body}`): OutboxOperation => ({
   type: 'comment.create',
   ticketId,
@@ -251,27 +251,28 @@ describe('optimistic overlay', () => {
     id: 't1',
     number: 1,
     subject: 's',
-    description: 'd',
     status: 'open' as const,
     priority: 'low' as const,
-    requester: { name: 'R', email: 'r@x.co' },
-    assignee: null,
-    tags: [],
-    commentCount: 2,
+    requesterName: 'R',
+    requesterEmail: 'r@x.co',
+    assigneeId: null,
+    assigneeName: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
+    resolvedAt: null,
   };
 
-  it('applies queued patches and comment counts for the matching ticket only', async () => {
+
+  it('applies queued patches for the matching ticket only', async () => {
     const { outbox } = makeOutbox();
-    await outbox.enqueue({ type: 'ticket.update', ticketId: 't1', patch: { status: 'resolved', assigneeId: 'u2' }, assignee: { id: 'u2', name: 'Bilal' } });
+    await outbox.enqueue({ type: 'ticket.update', ticketId: 't1', patch: { status: 'resolved', assigneeId: 'u2' }, assignee: { id: 'u2', name: 'Marco Rossi' } });
     await outbox.enqueue(comment('t1', 'hello', 'client-9'));
     await outbox.enqueue(statusChange('other', 'pending'));
 
     const shown = applyPendingToTicket(ticket, outbox.getEntries());
-    expect(shown).toMatchObject({ status: 'resolved', assignee: { id: 'u2', name: 'Bilal' }, commentCount: 3 });
+    expect(shown).toMatchObject({ status: 'resolved', assigneeId: 'u2', assigneeName: 'Marco Rossi' });
 
     const pending = pendingCommentsFor('t1', outbox.getEntries());
-    expect(pending).toEqual([expect.objectContaining({ id: 'client-9', body: 'hello', pending: true })]);
+    expect(pending).toEqual([expect.objectContaining({ id: 'client-9', body: 'hello', authorName: 'Aisha Khan', isInternal: false, pending: true })]);
   });
 });

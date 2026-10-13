@@ -24,7 +24,7 @@ function setup(fetchImpl: jest.Mock, token: string | null = 'tok_123', timeoutMs
 
 describe('buildUrl', () => {
   it('joins base, /api/v1 prefix and path, dropping empty query values', () => {
-    expect(buildUrl('https://x.test/', '/tickets', { status: 'open', q: '', cursor: null, page: 2 })).toBe(
+    expect(buildUrl('https://x.test/', '/tickets', { status: 'open', q: '', assignee: null, page: 2 })).toBe(
       'https://x.test/api/v1/tickets?status=open&page=2',
     );
   });
@@ -151,40 +151,128 @@ describe('parseErrorBody', () => {
   });
 });
 
-describe('createHttpApi', () => {
-  it('validates ticket pages and forwards list filters as query params', async () => {
-    const page = {
-      items: [
-        {
-          id: 't1',
-          number: 1001,
-          subject: 'Printer on fire',
-          description: 'It is on fire.',
-          status: 'open',
-          priority: 'urgent',
-          requester: { name: 'Ann', email: 'ann@example.com' },
-          assignee: null,
-          commentCount: 0,
-          createdAt: '2026-01-01T10:00:00.000Z',
-          updatedAt: '2026-01-01T10:00:00.000Z',
-        },
-      ],
-      nextCursor: 'abc',
-    };
-    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(page));
-    const { client } = setup(fetchImpl);
-    const api = createHttpApi(client);
+describe('createHttpApi (opsdesk-web /api/v1 adapter)', () => {
+  // Fixtures are shaped exactly like opsdesk-web's route handler responses.
+  const wireTicket = {
+    id: '6a1d7b0e-3c55-4c1e-9d0f-8b8f1c1d2e3f',
+    orgId: 'f2b7d8a1-0000-4000-8000-000000000001',
+    number: 1001,
+    subject: 'Printer on fire',
+    description: 'It is on fire.',
+    status: 'open',
+    priority: 'urgent',
+    requesterName: 'Ann Lee',
+    requesterEmail: 'ann@example.com',
+    assigneeId: null,
+    assigneeName: null,
+    createdAt: '2026-01-01T10:00:00.000Z',
+    updatedAt: '2026-01-01T10:00:00.000Z',
+    resolvedAt: null,
+  };
+  const wireComment = {
+    id: 'c-1',
+    orgId: wireTicket.orgId,
+    ticketId: wireTicket.id,
+    authorId: null,
+    authorName: 'Ann Lee',
+    body: 'Help',
+    isInternal: false,
+    createdAt: '2026-01-01T10:05:00.000Z',
+  };
 
-    const result = await api.listTickets({ status: 'open', q: 'fire', cursor: null });
+  function apiWith(...responses: unknown[]) {
+    const fetchImpl = jest.fn();
+    responses.forEach((body) => fetchImpl.mockResolvedValueOnce(jsonResponse(body)));
+    return { api: createHttpApi(setup(fetchImpl).client), fetchImpl };
+  }
 
-    expect(fetchImpl.mock.calls[0][0]).toBe('https://opsdesk.test/api/v1/tickets?status=open&q=fire');
-    expect(result.items[0]?.tags).toEqual([]); // default applied by schema
-    expect(result.nextCursor).toBe('abc');
+  it('maps login { accessToken, user, organization } to a session', async () => {
+    const { api, fetchImpl } = apiWith({
+      accessToken: 'jwt.abc',
+      tokenType: 'Bearer',
+      expiresIn: 43200,
+      user: { id: 'u1', email: 'aisha@northwind.test', name: 'Aisha Khan' },
+      organization: { id: 'o1', name: 'Northwind Agency', plan: 'pro', role: 'agent' },
+    });
+
+    await expect(api.login('aisha@northwind.test', 'pw')).resolves.toEqual({
+      token: 'jwt.abc',
+      user: { id: 'u1', email: 'aisha@northwind.test', name: 'Aisha Khan', role: 'agent', orgId: 'o1', orgName: 'Northwind Agency', plan: 'pro' },
+    });
+    expect(fetchImpl.mock.calls[0][1].headers.Authorization).toBeUndefined();
+  });
+
+  it('maps GET /me', async () => {
+    const { api } = apiWith({
+      user: { id: 'u1', email: 'victor@northwind.test', name: 'Victor Hughes' },
+      organization: { id: 'o1', name: 'Northwind Agency', plan: 'pro' },
+      role: 'viewer',
+      permissions: ['ticket:read', 'audit:read', 'member:read'],
+    });
+    await expect(api.me()).resolves.toMatchObject({ role: 'viewer', orgName: 'Northwind Agency' });
+  });
+
+  it('sends page/pageSize/status/q and validates the page envelope', async () => {
+    const { api, fetchImpl } = apiWith({ items: [wireTicket], total: 41, page: 2, pageSize: 20 });
+
+    const page = await api.listTickets({ status: 'open', q: 'fire', page: 2 });
+
+    expect(fetchImpl.mock.calls[0][0]).toBe('https://opsdesk.test/api/v1/tickets?status=open&q=fire&page=2&pageSize=20');
+    expect(page).toMatchObject({ total: 41, page: 2, pageSize: 20 });
+    expect(page.items[0]).not.toHaveProperty('orgId'); // unknown wire fields are stripped
+  });
+
+  it('combines { ticket } and { comments } into a ticket detail', async () => {
+    const fetchImpl = jest.fn((url: string) =>
+      Promise.resolve(jsonResponse(url.endsWith('/comments') ? { comments: [wireComment] } : { ticket: wireTicket })),
+    );
+    const api = createHttpApi(setup(fetchImpl as unknown as jest.Mock).client);
+
+    const detail = await api.getTicket(wireTicket.id);
+
+    expect(detail).toMatchObject({ id: wireTicket.id, description: 'It is on fire.', comments: [{ id: 'c-1', authorId: null }] });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('unwraps { ticket } from POST /tickets (raw row without assigneeName) and PATCH', async () => {
+    const { assigneeName: _omit, ...rawRow } = wireTicket;
+    const { api, fetchImpl } = apiWith({ ticket: rawRow }, { ticket: { ...wireTicket, status: 'resolved' } });
+
+    await expect(
+      api.createTicket({ subject: 'Printer', description: 'On fire', requesterName: 'Ann', requesterEmail: 'ann@example.com', priority: 'urgent' }),
+    ).resolves.toMatchObject({ number: 1001, assigneeName: null });
+    await expect(api.updateTicket(wireTicket.id, { status: 'resolved' })).resolves.toMatchObject({ status: 'resolved' });
+    expect(fetchImpl.mock.calls[1][1]).toMatchObject({ method: 'PATCH', body: '{"status":"resolved"}' });
+  });
+
+  it('posts replies as public comments and unwraps { comment }', async () => {
+    const { api, fetchImpl } = apiWith({ comment: { ...wireComment, authorId: 'u1', authorName: 'Aisha Khan' } });
+    await expect(api.addComment(wireTicket.id, 'On it', 'local-1')).resolves.toMatchObject({ authorName: 'Aisha Khan' });
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toEqual({ body: 'On it', isInternal: false });
+  });
+
+  it('builds the AI card from the summary and reply tasks', async () => {
+    const fetchImpl = jest.fn((_url: string, init: RequestInit) => {
+      const { task } = JSON.parse(String(init.body)) as { task: string };
+      return Promise.resolve(jsonResponse({ task, text: task === 'summary' ? 'Short summary' : 'Hi Ann, ...', provider: 'mock', model: 'mock-1' }));
+    });
+    const api = createHttpApi(setup(fetchImpl as unknown as jest.Mock).client);
+
+    await expect(api.summarizeTicket(wireTicket.id)).resolves.toEqual({ summary: 'Short summary', suggestedReply: 'Hi Ann, ...' });
+  });
+
+  it('unwraps { members } and posts push tokens', async () => {
+    const { api, fetchImpl } = apiWith(
+      { members: [{ userId: 'u1', name: 'Aisha Khan', email: 'aisha@northwind.test', role: 'agent', joinedAt: '2026-01-01T00:00:00.000Z' }] },
+      { ok: true },
+    );
+    await expect(api.listMembers()).resolves.toHaveLength(1);
+    await api.registerPushToken({ token: 'ExponentPushToken[abc]', platform: 'ios' });
+    expect(fetchImpl.mock.calls[1][0]).toBe('https://opsdesk.test/api/v1/devices/push-token');
   });
 
   it('fails with a validation error when a ticket has an unknown status', async () => {
-    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse({ items: [{ id: 't1', status: 'archived' }], nextCursor: null }));
-    const api = createHttpApi(setup(fetchImpl).client);
+    const { api } = apiWith({ items: [{ ...wireTicket, status: 'archived' }], total: 1, page: 1, pageSize: 20 });
     await expect(api.listTickets({})).rejects.toMatchObject({ kind: 'validation' });
   });
 });

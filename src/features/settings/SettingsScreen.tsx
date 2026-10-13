@@ -15,7 +15,7 @@ import type { PushRegistrationResult } from '@/notifications/push';
 import { usePushStatus } from '@/notifications/PushProvider';
 import { demoNetwork } from '@/offline/demoNetwork';
 import { useSync } from '@/offline/SyncProvider';
-import { PERMISSION_LABELS, PERMISSIONS, ROLE_LABELS, can, type Permission } from '@/permissions/matrix';
+import { MOBILE_PERMISSIONS, ROLE_LABELS, can } from '@/permissions/matrix';
 import { useTheme, type ThemePreference } from '@/theme/ThemeProvider';
 
 const THEME_SEGMENTS: { value: ThemePreference; label: string }[] = [
@@ -65,18 +65,20 @@ export function SettingsScreen() {
         <View style={styles.profileText}>
           <Text style={[typography.heading, { color: colors.text }]}>{user.name}</Text>
           <Text style={[typography.caption, { color: colors.textMuted }]}>{user.email}</Text>
-          <Text style={[typography.caption, { color: colors.textSubtle }]}>{user.orgName}</Text>
+          <Text style={[typography.caption, { color: colors.textSubtle }]}>
+            {user.orgName} · {user.plan.charAt(0).toUpperCase() + user.plan.slice(1)} plan
+          </Text>
         </View>
         <Badge label={ROLE_LABELS[user.role]} tone={{ fg: colors.primary, bg: colors.primarySoft }} />
       </Card>
 
       <Section title={`Your access · ${ROLE_LABELS[user.role]}`}>
-        {(Object.keys(PERMISSIONS) as Permission[]).map((permission) => {
+        {MOBILE_PERMISSIONS.map(({ permission, label }) => {
           const allowed = can(user.role, permission);
           return (
             <View key={permission} style={styles.permission} testID={`perm-${permission}`}>
               <Ionicons name={allowed ? 'checkmark-circle' : 'close-circle-outline'} size={18} color={allowed ? colors.success : colors.textSubtle} />
-              <Text style={[typography.body, { color: allowed ? colors.text : colors.textSubtle }]}>{PERMISSION_LABELS[permission]}</Text>
+              <Text style={[typography.body, { color: allowed ? colors.text : colors.textSubtle }]}>{label}</Text>
             </View>
           );
         })}

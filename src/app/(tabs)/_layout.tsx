@@ -31,7 +31,7 @@ export default function TabsLayout() {
           title: 'Tickets',
           tabBarIcon: ({ color, size }) => <Ionicons name="file-tray-full-outline" color={color} size={size} />,
           tabBarBadge: entries.length > 0 ? entries.length : undefined,
-          headerRight: can(user?.role, 'ticket.create')
+          headerRight: can(user?.role, 'ticket:create')
             ? () => (
                 <Pressable
                   testID="new-ticket-button"

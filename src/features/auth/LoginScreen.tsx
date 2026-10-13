@@ -130,7 +130,7 @@ export function LoginScreen() {
               })}
             </View>
             <Text style={[typography.caption, { color: colors.textSubtle }]}>
-              Or use e.g. agent@opsdesk.demo / {DEMO_PASSWORD}
+              Same accounts as the opsdesk-web seed, e.g. aisha@northwind.test / {DEMO_PASSWORD}
             </Text>
           </View>
         ) : null}

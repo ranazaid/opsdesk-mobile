@@ -60,7 +60,7 @@ export function TicketListScreen() {
     [openTicket, pendingTicketIds],
   );
 
-  const canCreate = can(user?.role, 'ticket.create');
+  const canCreate = can(user?.role, 'ticket:create');
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -114,7 +114,7 @@ export function TicketListScreen() {
           renderItem={renderItem}
           onEndReached={onEndReached}
           onEndReachedThreshold={0.4}
-          initialNumToRender={15}
+          initialNumToRender={20}
           refreshControl={<RefreshControl refreshing={manualRefresh} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />}
           ListEmptyComponent={
             <EmptyState

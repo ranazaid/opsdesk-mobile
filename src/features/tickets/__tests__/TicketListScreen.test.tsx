@@ -26,7 +26,7 @@ describe('TicketListScreen', () => {
     await renderWithProviders(<TicketListScreen />);
 
     expect(await screen.findByText('Invoices not syncing to QuickBooks')).toBeOnTheScreen();
-    expect(rows()).toHaveLength(15);
+    expect(rows()).toHaveLength(20);
     // Newest first, with status/priority in the accessible label.
     expect(rowLabels()[0]).toBe('Ticket 1001: Invoices not syncing to QuickBooks. Open, high priority');
   });
@@ -62,12 +62,13 @@ describe('TicketListScreen', () => {
     const listSpy = jest.spyOn(api, 'listTickets');
     const cached = () => queryClient.getQueryData<InfiniteData<TicketPage>>(ticketKeys.list({ status: null, q: '' }));
     expect(cached()?.pages).toHaveLength(1);
+    expect(rows()).toHaveLength(20);
 
     await fireEvent(screen.getByTestId('ticket-list'), 'onEndReached');
 
     await waitFor(() => expect(cached()?.pages).toHaveLength(2));
-    expect(listSpy).toHaveBeenCalledWith(expect.objectContaining({ cursor: '15' }), expect.anything());
-    expect(cached()?.pages.flatMap((page) => page.items)).toHaveLength(30);
+    expect(listSpy).toHaveBeenCalledWith(expect.objectContaining({ page: 2 }), expect.anything());
+    expect(cached()?.pages.flatMap((page) => page.items)).toHaveLength(36);
   });
 
   it('navigates to the ticket detail on press', async () => {

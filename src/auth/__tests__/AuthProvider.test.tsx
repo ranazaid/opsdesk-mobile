@@ -15,7 +15,7 @@ function Probe() {
     <>
       <Text testID="status">{state.status === 'signedOut' && state.reason ? `${state.status}:${state.reason}` : state.status}</Text>
       <Text testID="user">{user ? `${user.name} (${user.role})` : 'none'}</Text>
-      <Pressable testID="sign-in" onPress={() => void signIn('admin@opsdesk.demo', DEMO_PASSWORD)} />
+      <Pressable testID="sign-in" onPress={() => void signIn('adam@northwind.test', DEMO_PASSWORD)} />
       <Pressable testID="sign-out" onPress={() => void signOut()} />
     </>
   );
@@ -50,7 +50,7 @@ describe('AuthProvider', () => {
 
     await fireEvent.press(screen.getByTestId('sign-in'));
 
-    await waitFor(() => expect(screen.getByTestId('user')).toHaveTextContent('Daniyal Ahmed (admin)'));
+    await waitFor(() => expect(screen.getByTestId('user')).toHaveTextContent('Adam Clarke (admin)'));
     expect(session.getToken()).toBe('demo.usr_admin');
     expect(await tokenStorage.load()).toMatchObject({ token: 'demo.usr_admin', user: { role: 'admin' } });
   });
@@ -58,10 +58,10 @@ describe('AuthProvider', () => {
   it('restores a persisted session on launch', async () => {
     await tokenStorage.save({
       token: 'demo.usr_viewer',
-      user: { id: 'usr_viewer', name: 'Hamza Iqbal', email: 'viewer@opsdesk.demo', role: 'viewer', orgId: 'org_acme', orgName: 'Acme Logistics' },
+      user: { id: 'usr_viewer', name: 'Victor Hughes', email: 'victor@northwind.test', role: 'viewer', orgId: 'org_northwind', orgName: 'Northwind Agency', plan: 'pro' },
     });
     await renderAuth();
-    await waitFor(() => expect(screen.getByTestId('user')).toHaveTextContent('Hamza Iqbal (viewer)'));
+    await waitFor(() => expect(screen.getByTestId('user')).toHaveTextContent('Victor Hughes (viewer)'));
   });
 
   it('logs out automatically when the API returns 401, clearing storage and per-user data', async () => {

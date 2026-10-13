@@ -35,10 +35,10 @@ export function applyPendingToTicket<T extends Ticket>(ticket: T, entries: reado
         ...result,
         ...(status ? { status } : null),
         ...(priority ? { priority } : null),
-        ...(assigneeId !== undefined ? { assignee: assigneeId === null ? null : (op.assignee ?? result.assignee) } : null),
+        ...(assigneeId !== undefined
+          ? { assigneeId, assigneeName: assigneeId === null ? null : (op.assignee?.name ?? result.assigneeName) }
+          : null),
       };
-    } else {
-      result = { ...result, commentCount: result.commentCount + 1 };
     }
   }
   return result;
@@ -52,7 +52,9 @@ export function pendingCommentsFor(ticketId: string, entries: readonly OutboxEnt
             id: entry.op.clientId,
             ticketId,
             body: entry.op.body,
-            author: { id: entry.op.author.id, name: entry.op.author.name, kind: 'agent' as const },
+            authorId: entry.op.author.id,
+            authorName: entry.op.author.name,
+            isInternal: false,
             createdAt: entry.createdAt,
             pending: true as const,
             entryId: entry.id,

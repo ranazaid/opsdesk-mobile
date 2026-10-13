@@ -66,7 +66,7 @@ export function TicketDetailScreen({ ticketId }: { ticketId: string }) {
   if (isPending) return <LoadingState label="Loading ticket…" />;
   if (!ticket) return <ErrorState message={isError ? errorMessage(error) : 'Ticket not found.'} onRetry={() => void refetch()} />;
 
-  const canReply = can(role, 'ticket.reply');
+  const canReply = can(role, 'comment:create');
 
   return (
     <KeyboardAvoidingView style={[styles.screen, { backgroundColor: colors.background }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
@@ -90,7 +90,7 @@ export function TicketDetailScreen({ ticketId }: { ticketId: string }) {
                   accessibilityLabel="Ticket status"
                   segments={STATUS_SEGMENTS}
                   value={ticket.status}
-                  disabled={!can(role, 'ticket.changeStatus')}
+                  disabled={!can(role, 'ticket:update')}
                   onChange={(status) => void actions.setStatus(status)}
                 />
                 <Text style={[typography.overline, styles.label, { color: colors.textSubtle }]}>Priority</Text>
@@ -100,22 +100,22 @@ export function TicketDetailScreen({ ticketId }: { ticketId: string }) {
                       key={priority}
                       label={PRIORITY_LABELS[priority]}
                       selected={ticket.priority === priority}
-                      onPress={can(role, 'ticket.changePriority') ? () => void actions.setPriority(priority) : undefined}
+                      onPress={can(role, 'ticket:update') ? () => void actions.setPriority(priority) : undefined}
                     />
                   ))}
                 </View>
                 <Text style={[typography.overline, styles.label, { color: colors.textSubtle }]}>Assignee</Text>
                 <View style={styles.assigneeRow}>
                   <View style={styles.inline}>
-                    {ticket.assignee ? <Avatar name={ticket.assignee.name} size={28} /> : null}
-                    <Text style={[typography.body, { color: ticket.assignee ? colors.text : colors.textSubtle }]}>{ticket.assignee?.name ?? 'Unassigned'}</Text>
+                    {ticket.assigneeName ? <Avatar name={ticket.assigneeName} size={28} /> : null}
+                    <Text style={[typography.body, { color: ticket.assigneeName ? colors.text : colors.textSubtle }]}>{ticket.assigneeName ?? 'Unassigned'}</Text>
                   </View>
-                  {can(role, 'ticket.reassign') ? (
+                  {can(role, 'ticket:assign') ? (
                     <Pressable testID="reassign-button" accessibilityRole="button" accessibilityLabel="Change assignee" hitSlop={8} onPress={() => setPickerOpen(true)}>
                       <Text style={[typography.bodyStrong, { color: colors.primary }]}>Change</Text>
                     </Pressable>
                   ) : (
-                    <Text style={[typography.caption, { color: colors.textSubtle }]}>Admins can reassign</Text>
+                    <Text style={[typography.caption, { color: colors.textSubtle }]}>Your role can&apos;t reassign</Text>
                   )}
                 </View>
               </Card>
@@ -126,7 +126,7 @@ export function TicketDetailScreen({ ticketId }: { ticketId: string }) {
               </View>
             )}
 
-            {can(role, 'ai.summarize') ? (
+            {can(role, 'ai:use') ? (
               <AiSummaryCard ticketId={ticket.id} isOnline={isOnline} onUseReply={canReply ? (text) => composerRef.current?.setDraft(text) : undefined} />
             ) : null}
 
@@ -143,7 +143,7 @@ export function TicketDetailScreen({ ticketId }: { ticketId: string }) {
         visible={pickerOpen}
         members={members.data}
         loading={members.isPending}
-        current={ticket.assignee}
+        currentId={ticket.assigneeId}
         onSelect={onAssign}
         onClose={() => setPickerOpen(false)}
       />
@@ -167,18 +167,9 @@ function TicketSummary({ ticket, hasPending }: { ticket: TicketDetail; hasPendin
       </View>
       <Text style={[typography.title, { color: colors.text, fontSize: 20 }]}>{ticket.subject}</Text>
       <Text style={[typography.caption, { color: colors.textSubtle }]}>
-        {ticket.requester.name} · {ticket.requester.email} · opened {formatTimestamp(ticket.createdAt)}
+        {ticket.requesterName} · {ticket.requesterEmail} · opened {formatTimestamp(ticket.createdAt)}
       </Text>
       <Text style={[typography.body, { color: colors.textMuted }]}>{ticket.description}</Text>
-      {ticket.tags.length > 0 ? (
-        <View style={styles.tags}>
-          {ticket.tags.map((tag) => (
-            <Text key={tag} style={[typography.caption, styles.tag, { color: colors.textMuted, backgroundColor: colors.surfaceAlt }]}>
-              #{tag}
-            </Text>
-          ))}
-        </View>
-      ) : null}
     </Card>
   );
 }
@@ -195,6 +186,4 @@ const styles = StyleSheet.create({
   conversation: { marginTop: 8 },
   noComments: { paddingHorizontal: 16 },
   listContent: { paddingBottom: 16 },
-  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  tag: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, overflow: 'hidden' },
 });

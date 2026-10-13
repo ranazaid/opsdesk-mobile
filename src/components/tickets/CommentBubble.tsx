@@ -9,23 +9,24 @@ import { formatTimestamp } from '@/utils/time';
 export function CommentBubble({ comment }: { comment: DisplayComment }) {
   const { colors, typography, radius } = useTheme();
   const pending = isPendingComment(comment);
-  const fromAgent = comment.author.kind === 'agent';
+  const fromAgent = comment.authorId !== null;
+  const internal = comment.isInternal;
 
   return (
     <View style={styles.row} testID={pending ? 'pending-comment' : `comment-${comment.id}`}>
-      <Avatar name={comment.author.name} size={32} tone={fromAgent ? 'primary' : 'neutral'} />
+      <Avatar name={comment.authorName} size={32} tone={fromAgent ? 'primary' : 'neutral'} />
       <View style={styles.content}>
         <View style={styles.header}>
-          <Text style={[typography.caption, styles.author, { color: colors.text }]}>{comment.author.name}</Text>
-          <Text style={[typography.caption, { color: colors.textSubtle }]}>{fromAgent ? 'Agent' : 'Customer'}</Text>
+          <Text style={[typography.caption, styles.author, { color: colors.text }]}>{comment.authorName}</Text>
+          <Text style={[typography.caption, { color: colors.textSubtle }]}>{internal ? 'Internal note' : fromAgent ? 'Team' : 'Customer'}</Text>
         </View>
         <View
           style={[
             styles.bubble,
             {
               borderRadius: radius.md,
-              backgroundColor: fromAgent ? colors.primarySoft : colors.surface,
-              borderColor: pending ? colors.warning : fromAgent ? colors.primarySoft : colors.border,
+              backgroundColor: internal ? colors.warningSoft : fromAgent ? colors.primarySoft : colors.surface,
+              borderColor: pending ? colors.warning : internal ? colors.warningSoft : fromAgent ? colors.primarySoft : colors.border,
               borderStyle: pending ? 'dashed' : 'solid',
             },
           ]}

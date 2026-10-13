@@ -2,24 +2,25 @@ import { Ionicons } from '@expo/vector-icons';
 import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { Member, UserSummary } from '@/api/schemas';
+import type { Member } from '@/api/schemas';
 import { Avatar } from '@/components/ui/Avatar';
-import { ROLE_LABELS } from '@/permissions/matrix';
+import { isAssignable, ROLE_LABELS } from '@/permissions/matrix';
 import { useTheme } from '@/theme/ThemeProvider';
 
 export interface AssigneePickerProps {
   visible: boolean;
   members: Member[] | undefined;
   loading: boolean;
-  current: UserSummary | null;
+  /** Current assignee's user id. */
+  currentId: string | null;
   onSelect: (member: Member | null) => void;
   onClose: () => void;
 }
 
-export function AssigneePicker({ visible, members, loading, current, onSelect, onClose }: AssigneePickerProps) {
+export function AssigneePicker({ visible, members, loading, currentId, onSelect, onClose }: AssigneePickerProps) {
   const { colors, typography, radius } = useTheme();
   const insets = useSafeAreaInsets();
-  const assignable = (members ?? []).filter((member) => member.role !== 'viewer');
+  const assignable = (members ?? []).filter((member) => isAssignable(member.role));
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -37,9 +38,9 @@ export function AssigneePicker({ visible, members, loading, current, onSelect, o
         ) : (
           <FlatList
             data={[null, ...assignable]}
-            keyExtractor={(member) => member?.id ?? 'unassigned'}
+            keyExtractor={(member) => member?.userId ?? 'unassigned'}
             renderItem={({ item }) => {
-              const selected = (item?.id ?? null) === (current?.id ?? null);
+              const selected = (item?.userId ?? null) === currentId;
               return (
                 <Pressable
                   accessibilityRole="button"

@@ -17,9 +17,9 @@ export function useTicketList(filters: TicketListFilters) {
   const query = useInfiniteQuery({
     queryKey: ticketKeys.list(filters),
     queryFn: ({ pageParam, signal }) =>
-      api.listTickets({ status: filters.status ?? undefined, q: filters.q || undefined, cursor: pageParam }, signal),
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
+      api.listTickets({ status: filters.status ?? undefined, q: filters.q || undefined, page: pageParam }, signal),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => (lastPage.page * lastPage.pageSize < lastPage.total ? lastPage.page + 1 : undefined),
   });
 
   // Overlay queued writes, then re-apply the status filter so a ticket resolved
@@ -78,12 +78,12 @@ export function useTicketActions(ticketId: string, user: User | null) {
   );
 
   const reassign = useCallback(
-    (assignee: Pick<Member, 'id' | 'name'> | null) =>
+    (assignee: Pick<Member, 'userId' | 'name'> | null) =>
       submit({
         type: 'ticket.update',
         ticketId,
-        patch: { assigneeId: assignee?.id ?? null },
-        assignee: assignee ? { id: assignee.id, name: assignee.name } : null,
+        patch: { assigneeId: assignee?.userId ?? null },
+        assignee: assignee ? { id: assignee.userId, name: assignee.name } : null,
       }),
     [submit, ticketId],
   );
@@ -116,7 +116,7 @@ export function useMembers(role: User['role'] | undefined) {
   return useQuery({
     queryKey: memberKeys.all,
     queryFn: () => api.listMembers(),
-    enabled: can(role, 'ticket.reassign'),
+    enabled: can(role, 'ticket:assign'),
     staleTime: 5 * 60_000,
   });
 }

@@ -27,17 +27,18 @@ export function CreateTicketScreen() {
   const { isOnline } = useSync();
   const createTicket = useCreateTicket();
   const [subject, setSubject] = useState('');
+  const [requesterName, setRequesterName] = useState('');
   const [requesterEmail, setRequesterEmail] = useState('');
   const [description, setDescription] = useState('');
-  const [priority, setPriority] = useState<TicketPriority>('medium');
+  const [priority, setPriority] = useState<TicketPriority>('normal');
   const [errors, setErrors] = useState<FieldErrors>({});
 
-  if (!can(user?.role, 'ticket.create')) {
+  if (!can(user?.role, 'ticket:create')) {
     return <EmptyState icon="lock-closed-outline" title="View-only access" message="Your role can't create tickets." actionLabel="Go back" onAction={() => router.back()} />;
   }
 
   const submit = () => {
-    const parsed = createTicketInputSchema.safeParse({ subject, requesterEmail: requesterEmail.trim(), description, priority });
+    const parsed = createTicketInputSchema.safeParse({ subject, requesterName, requesterEmail, description, priority });
     if (!parsed.success) {
       const next: FieldErrors = {};
       for (const issue of parsed.error.issues) {
@@ -64,6 +65,16 @@ export function CreateTicketScreen() {
           placeholder="Short summary of the issue"
           error={errors.subject}
           maxLength={140}
+          returnKeyType="next"
+        />
+        <TextField
+          testID="new-requester-name"
+          label="Customer name"
+          value={requesterName}
+          onChangeText={setRequesterName}
+          placeholder="Jane Cooper"
+          error={errors.requesterName}
+          autoComplete="name"
           returnKeyType="next"
         />
         <TextField

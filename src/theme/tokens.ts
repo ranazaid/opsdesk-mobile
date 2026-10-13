@@ -108,6 +108,8 @@ export function statusTone(status: TicketStatus, colors: ThemeColors): Tone {
       return { fg: colors.warning, bg: colors.warningSoft };
     case 'resolved':
       return { fg: colors.success, bg: colors.successSoft };
+    case 'closed':
+      return { fg: colors.textSubtle, bg: colors.surfaceAlt };
   }
 }
 
@@ -115,7 +117,7 @@ export function priorityTone(priority: TicketPriority, colors: ThemeColors): Ton
   switch (priority) {
     case 'low':
       return { fg: colors.textSubtle, bg: colors.surfaceAlt };
-    case 'medium':
+    case 'normal':
       return { fg: colors.info, bg: colors.infoSoft };
     case 'high':
       return { fg: colors.warning, bg: colors.warningSoft };
@@ -124,5 +126,5 @@ export function priorityTone(priority: TicketPriority, colors: ThemeColors): Ton
   }
 }
 
-export const STATUS_LABELS: Record<TicketStatus, string> = { open: 'Open', pending: 'Pending', resolved: 'Resolved' };
-export const PRIORITY_LABELS: Record<TicketPriority, string> = { low: 'Low', medium: 'Medium', high: 'High', urgent: 'Urgent' };
+export const STATUS_LABELS: Record<TicketStatus, string> = { open: 'Open', pending: 'Pending', resolved: 'Resolved', closed: 'Closed' };
+export const PRIORITY_LABELS: Record<TicketPriority, string> = { low: 'Low', normal: 'Normal', high: 'High', urgent: 'Urgent' };

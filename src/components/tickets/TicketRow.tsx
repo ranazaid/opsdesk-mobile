@@ -27,7 +27,7 @@ export const TicketRow = memo(function TicketRow({ ticket, pendingSync, onPress 
     >
       <View style={styles.topLine}>
         <Text style={[typography.caption, { color: colors.textSubtle }]}>
-          #{ticket.number} · {ticket.requester.name}
+          #{ticket.number} · {ticket.requesterName}
         </Text>
         <View style={styles.meta}>
           {pendingSync ? <Ionicons name="cloud-upload-outline" size={14} color={colors.warning} accessibilityLabel="Waiting to sync" /> : null}
@@ -43,14 +43,8 @@ export const TicketRow = memo(function TicketRow({ ticket, pendingSync, onPress 
           <PriorityBadge priority={ticket.priority} />
         </View>
         <View style={styles.meta}>
-          {ticket.commentCount > 0 ? (
-            <View style={styles.meta}>
-              <Ionicons name="chatbubble-outline" size={13} color={colors.textSubtle} />
-              <Text style={[typography.caption, { color: colors.textSubtle }]}>{ticket.commentCount}</Text>
-            </View>
-          ) : null}
-          {ticket.assignee ? (
-            <Avatar name={ticket.assignee.name} size={24} />
+          {ticket.assigneeName ? (
+            <Avatar name={ticket.assigneeName} size={24} />
           ) : (
             <Text style={[typography.caption, { color: colors.textSubtle }]}>Unassigned</Text>
           )}

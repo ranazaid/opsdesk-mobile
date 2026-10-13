@@ -13,7 +13,7 @@ jest.mock('expo-router', () => ({
   Stack: { Screen: () => null },
 }));
 
-const TICKET_ID = 'tkt_rs'; // #1001 "Invoices not syncing to QuickBooks", open, assigned to Ayesha (agent)
+const TICKET_ID = 'tkt_rs'; // #1001 "Invoices not syncing to QuickBooks", open, assigned to Aisha Khan (agent)
 
 afterEach(() => {
   demoNetwork.setOffline(false);
@@ -34,21 +34,26 @@ describe('TicketDetailScreen role-aware UI', () => {
     expect(screen.queryByTestId('ai-summary-card')).not.toBeOnTheScreen();
   });
 
-  it('agent: can change status and reply, but cannot reassign', async () => {
-    await renderAs('agent');
+  it('agent: can change status, reply and reassign (ticket:assign in the shared matrix)', async () => {
+    const { api } = await renderAs('agent');
     expect(await screen.findByTestId('status-control')).toBeOnTheScreen();
     expect(screen.getByTestId('reply-input')).toBeOnTheScreen();
-    expect(screen.queryByTestId('reassign-button')).not.toBeOnTheScreen();
-    expect(screen.getByText('Admins can reassign')).toBeOnTheScreen();
+
+    await fireEvent.press(await screen.findByTestId('reassign-button'));
+    // Viewers cannot be assigned tickets, so they are not offered.
+    expect(screen.queryByLabelText('Assign to Victor Hughes')).not.toBeOnTheScreen();
+    await fireEvent.press(await screen.findByLabelText('Assign to Marco Rossi'));
+
+    await waitFor(() => expect(api.db.tickets.find((t) => t.id === TICKET_ID)?.assigneeName).toBe('Marco Rossi'));
+    expect(await screen.findByText('Marco Rossi')).toBeOnTheScreen();
   });
 
-  it('admin: can reassign the ticket to a teammate', async () => {
+  it('admin: can unassign the ticket', async () => {
     const { api } = await renderAs('admin');
     await fireEvent.press(await screen.findByTestId('reassign-button'));
-    await fireEvent.press(await screen.findByLabelText('Assign to Bilal Hussain'));
+    await fireEvent.press(await screen.findByLabelText('Unassign'));
 
-    await waitFor(() => expect(api.db.tickets.find((t) => t.id === TICKET_ID)?.assignee?.name).toBe('Bilal Hussain'));
-    expect(await screen.findByText('Bilal Hussain')).toBeOnTheScreen();
+    await waitFor(() => expect(api.db.tickets.find((t) => t.id === TICKET_ID)?.assigneeId).toBeNull());
   });
 });
 
@@ -99,7 +104,7 @@ describe('TicketDetailScreen offline-first writes', () => {
       ticketId: TICKET_ID,
       body: 'Queued before the app was killed',
       clientId: 'cmt_restart_1',
-      author: { id: 'usr_agent', name: 'Ayesha Khan' },
+      author: { id: 'usr_agent', name: 'Aisha Khan' },
     });
 
     const afterRestart = new Outbox({ storage: AsyncStorage, storageKey });

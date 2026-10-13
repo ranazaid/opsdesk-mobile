@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { isApiError } from '@/api/errors';
-import { ticketPrioritySchema, ticketStatusSchema, userSummarySchema } from '@/api/schemas';
+import { ticketPrioritySchema, ticketStatusSchema } from '@/api/schemas';
 
 /**
  * Durable, ordered queue of writes made while offline (or while the request
@@ -21,11 +21,14 @@ import { ticketPrioritySchema, ticketStatusSchema, userSummarySchema } from '@/a
  *   are serialised so a slow write can never overwrite a newer one.
  * - Repeated ticket updates are coalesced into the pending entry for that
  *   ticket (last write wins per field), unless that entry is in flight.
- * - Comments carry a client-generated id used as an idempotency key, so a
- *   replay after a lost response cannot duplicate the comment.
+ * - Delivery is at-least-once: an entry is removed only after the server
+ *   confirms it. Comments carry a client-generated id that keys the optimistic
+ *   copy in the UI (and dedupes replays in the demo backend).
  */
 
 export const OUTBOX_STORAGE_KEY = 'opsdesk.outbox.v1';
+
+const userSummarySchema = z.object({ id: z.string(), name: z.string() });
 
 const ticketPatchSchema = z.object({
   status: ticketStatusSchema.optional(),
