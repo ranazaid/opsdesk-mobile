@@ -10,7 +10,7 @@
 
 OpsDesk Mobile is the companion app for **OpsDesk**, a multi-tenant support-ticket SaaS. The web app and REST API live in **[ranazaid/opsdesk-web](https://github.com/ranazaid/opsdesk-web)**. With this app, agents can triage their queue, reply to customers and change ticket status from their phone, including on a train with no signal. Writes made offline are queued, shown straight away and replayed in order when the connection returns.
 
-If no API URL is configured, the app runs in **demo mode** against an in-memory backend with seeded tickets. You can open it in Expo Go and explore every role without setting up a server.
+Point `EXPO_PUBLIC_API_URL` at an opsdesk-web instance and the app talks to its `/api/v1` REST API. Leave it unset and the app runs in **demo mode** against an in-memory backend that mirrors that API, with the same demo accounts, RBAC rules and error codes as the opsdesk-web seed. That way you can explore every role in Expo Go without a server. A contract test runs the real HTTP adapter against a live opsdesk-web to keep the two repos in step.
 
 > **Portfolio reference implementation:** patterns from production apps I've shipped to the App Store and Play Store, rebuilt from scratch with demo data.
 
@@ -24,9 +24,12 @@ If no API URL is configured, the app runs in **demo mode** against an in-memory 
 
 ## Features
 
-- **Ticket queue:** debounced search (subject, customer, `#number`, tags), status filter chips, cursor-based infinite scroll and pull-to-refresh. Pull-to-refresh also flushes the outbox.
-- **Ticket detail:** the full conversation, a reply composer, and status, priority and assignee controls. Each control is shown or hidden by the shared permission matrix.
-- **AI summary card:** calls `POST /ai/summary` and shows a short summary plus a suggested reply. The *Use as reply* button drops the suggestion into the composer.
+- **Ticket queue:** debounced search (subject, customer, `#number`), status filter chips (open, pending, resolved, closed), page-based infinite scroll and pull-to-refresh. Pull-to-refresh also flushes the outbox.
+- **Ticket detail:**
+  - The full thread, with customer messages, team replies and internal notes styled differently.
+  - A reply composer.
+  - Status, priority and assignee controls, each shown or hidden by the RBAC matrix shared with opsdesk-web.
+- **AI summary card:** calls `POST /ai/summary` for the `summary` and `reply` tasks in parallel. It shows a short summary plus a suggested reply, and *Use as reply* drops the suggestion into the composer.
 - **Create ticket:** form validated with zod, with clear messaging when you're offline.
 - **Profile & settings:** your role and what it allows, a System/Light/Dark theme picker, sync status, push status, and sign out.
 - **Offline-first:**
@@ -64,7 +67,7 @@ flowchart LR
   API --> PG[("Postgres<br/>multi-tenant")]
   API --> Stripe["Stripe<br/>billing"]
   API --> LLM["LLM provider<br/>/ai/summary"]
-  API -->|"Expo Push"| Push
+  API -.->|"Expo Push<br/>(sender not built yet)"| Push
   Device -->|"RUM: views, errors,<br/>resources, actions"| DD["Datadog RUM"]
 ```
 
@@ -102,26 +105,50 @@ src/
 | Testing | Jest (`jest-expo`) + React Native Testing Library 14 |
 | Tooling | ESLint (`eslint-config-expo`), `tsc --noEmit`, GitHub Actions, Snyk, Dependabot, EAS Build |
 
-## API contract
+## API contract (opsdesk-web `/api/v1`)
 
-This is the v1 mobile contract the app is written against, served under `${EXPO_PUBLIC_API_URL}/api/v1`. Every request except login sends `Authorization: Bearer <jwt>`. All HTTP mapping lives in [`src/api/httpApi.ts`](src/api/httpApi.ts) and [`src/api/schemas.ts`](src/api/schemas.ts) (see [Known limitations](#known-limitations) for how this lines up with opsdesk-web today).
+The app consumes the REST API that [opsdesk-web](https://github.com/ranazaid/opsdesk-web) serves under `${EXPO_PUBLIC_API_URL}/api/v1`. Every request except login sends `Authorization: Bearer <accessToken>`.
 
-| Method | Path | Response |
-| --- | --- | --- |
-| `POST` | `/auth/login` | `{ token, user: { id, name, email, role, orgId, orgName } }` |
-| `GET` | `/me` | `User` |
-| `GET` | `/tickets?status=&q=&cursor=` | `{ items: Ticket[], nextCursor: string \| null }` |
-| `GET` | `/tickets/:id` | `Ticket & { comments: Comment[] }` |
-| `POST` | `/tickets` | `Ticket` |
-| `PATCH` | `/tickets/:id` | `Ticket` (body: any of `status`, `priority`, `assigneeId`) |
-| `POST` | `/tickets/:id/comments` | `Comment` (body: `{ body, clientId }`; `clientId` is an idempotency key) |
-| `POST` | `/ai/summary` | `{ summary, suggestedReply }` (body: `{ ticketId }`) |
-| `GET` | `/members` | `{ items: Member[] }`, used to pick an assignee when reassigning |
-| `POST` | `/devices/push-token` | `{ ok: true }` (body: `{ token, platform }`) |
+Two files own the mapping between the server's wire format and the app's domain types:
 
-The schemas in [`src/api/schemas.ts`](src/api/schemas.ts) are the source of truth for these types. Roles are `owner | admin | agent | viewer`, statuses are `open | pending | resolved`, and priorities are `low | medium | high | urgent`.
+- [`src/api/schemas.ts`](src/api/schemas.ts) holds the zod wire and domain schemas.
+- [`src/api/httpApi.ts`](src/api/httpApi.ts) is the adapter.
 
-Errors are normalised into a single `ApiError` with one of five kinds: `network`, `timeout`, `unauthorized`, `http` or `validation`. Each error also carries a `retryable` flag, which both the TanStack retry policy and the outbox use. The client understands three error body shapes: `{ error: { code, message } }`, `{ message }` and plain text.
+Nothing else in the app knows about response envelopes.
+
+| Method | Path | Response | Used for |
+| --- | --- | --- | --- |
+| `POST` | `/auth/login` | `{ accessToken, tokenType, expiresIn, user, organization: { id, name, plan, role } }` | Sign-in (mapped to the session user) |
+| `GET` | `/me` | `{ user, organization, role, permissions }` | Revalidating a restored session |
+| `GET` | `/tickets?status=&q=&page=&pageSize=` | `{ items, total, page, pageSize }` | Queue, search, filters, infinite scroll |
+| `GET` | `/tickets/:id` | `{ ticket }` | Ticket detail (fetched in parallel with the thread) |
+| `GET` | `/tickets/:id/comments` | `{ comments }` | Thread, including internal notes |
+| `POST` | `/tickets` | `{ ticket }` (201) | Create ticket |
+| `PATCH` | `/tickets/:id` | `{ ticket }` | Status, priority, assignee (outbox) |
+| `POST` | `/tickets/:id/comments` | `{ comment }` (201), body `{ body, isInternal: false }` | Replies (outbox) |
+| `POST` | `/ai/summary` | `{ task, text, provider, model }`, body `{ ticketId, task }` | AI card (`summary` + `reply`) |
+| `GET` | `/members` | `{ members: [{ userId, name, email, role, joinedAt }] }` | Assignee picker |
+| `POST` | `/devices/push-token` | `{ ok: true }`, body `{ token, platform }` | Push registration (upsert) |
+
+The enums match opsdesk-web's `src/lib/domain.ts`:
+
+- roles: `owner | admin | agent | viewer`
+- statuses: `open | pending | resolved | closed`
+- priorities: `low | normal | high | urgent`
+
+**Errors.** Errors from the server arrive as `{ error: { code, message, details? } }`, with these statuses: 401 unauthorized, 403 forbidden, 404 not found, 422 validation_failed, 402 plan limit and 429 rate limited. The client normalises them into a single `ApiError` with one of five kinds: `network`, `timeout`, `unauthorized`, `http` or `validation`. Each error also carries a `retryable` flag, which both the TanStack retry policy and the outbox use. Any 401 outside login signs the user out.
+
+**Contract test.** [`src/api/__tests__/opsdeskWeb.e2e.test.ts`](src/api/__tests__/opsdeskWeb.e2e.test.ts) drives the real HTTP adapter against a running opsdesk-web through this sequence:
+
+1. login → `/me`
+2. paged list → detail + thread
+3. reply → status/priority change
+4. AI summary
+5. members → reassign
+6. push-token registration → ticket creation
+7. 401 and 403 handling
+
+See [Testing](#testing).
 
 ## Offline queue design
 
@@ -150,7 +177,7 @@ user action ──► outbox.enqueue(op) ──► persisted to AsyncStorage
   - The user sees a dismissible banner.
   - The error is sent to Datadog.
 - **Coalescing:** repeated updates to the same ticket are merged into the queued entry (last write wins per field). An entry that is in flight is never changed.
-- **Idempotency:** comments carry a client-generated `clientId`. If a replay happens after a lost response, the server returns the existing comment instead of creating a duplicate.
+- **At-least-once delivery:** an entry leaves the queue only after the server confirms it. Each comment carries a client-generated id that keys its optimistic copy in the UI until the server's version replaces it.
 - **Optimistic overlay, not cache surgery:** screens render `server data + pending ops` (`src/offline/pending.ts`), so a refetch or an app restart can't wipe pending changes.
 - **Durability:**
   - Each change is persisted before it is acknowledged, and storage writes are serialised.
@@ -163,18 +190,21 @@ In demo mode, **Profile → Simulate offline** makes the mock API unreachable. T
 
 ## Role matrix
 
-[`src/permissions/matrix.ts`](src/permissions/matrix.ts) is data-only, so it can be shared with the backend or generated from it. The server is the security boundary, the client uses the matrix to decide what to show, and the demo backend enforces it too.
+[`src/permissions/matrix.ts`](src/permissions/matrix.ts) mirrors opsdesk-web's single source of truth, [`src/lib/permissions.ts`](https://github.com/ranazaid/opsdesk-web/blob/main/src/lib/permissions.ts). It uses the same permission names (`ticket:update`, `ticket:assign`, `comment:create`, `ai:use`, ...) and the same role sets, and its tests pin the same table as the web app's `rbac.test.ts`. The server enforces the matrix on every request, the app uses it to decide which controls to show, and the demo backend enforces it too.
 
-| Capability | Owner | Admin | Agent | Viewer |
+| Capability (permission) | Owner | Admin | Agent | Viewer |
 | --- | :---: | :---: | :---: | :---: |
-| View tickets and conversations | ✅ | ✅ | ✅ | ✅ |
-| Create tickets | ✅ | ✅ | ✅ | ❌ |
-| Reply to customers | ✅ | ✅ | ✅ | ❌ |
-| Change status / priority | ✅ | ✅ | ✅ | ❌ |
-| Reassign tickets | ✅ | ✅ | ❌ | ❌ |
-| Generate AI summaries | ✅ | ✅ | ✅ | ❌ |
+| View tickets and threads (`ticket:read`) | ✅ | ✅ | ✅ | ✅ |
+| Create tickets (`ticket:create`) | ✅ | ✅ | ✅ | ❌ |
+| Reply (`comment:create`) | ✅ | ✅ | ✅ | ❌ |
+| Change status / priority (`ticket:update`) | ✅ | ✅ | ✅ | ❌ |
+| Assign / reassign (`ticket:assign`) | ✅ | ✅ | ✅ | ❌ |
+| AI summary and draft (`ai:use`) | ✅ | ✅ | ✅ | ❌ |
+| See team members (`member:read`) | ✅ | ✅ | ✅ | ✅ |
 
-Viewers get a read-only ticket view with no composer and no controls. Agents see an "Admins can reassign" hint in place of the assignee picker.
+Member management (owner and admin) and billing (owner manages, admin reads) live in the web app only.
+
+Viewers get a read-only ticket view with no composer and no controls. The assignee picker only offers roles that can work tickets, because the server rejects assigning to viewers.
 
 ## Run locally
 
@@ -189,15 +219,19 @@ Then scan the QR code with **Expo Go** (iOS or Android), or press `i` / `a` / `w
 
 **Demo mode** is the default, because `EXPO_PUBLIC_API_URL` is unset:
 
-- Tap **Owner / Admin / Agent / Viewer** on the sign-in screen, or use `agent@opsdesk.demo` / `demo1234`.
+- Tap **Owner / Admin / Agent / Viewer** on the sign-in screen, or sign in with `aisha@northwind.test` / `opsdesk-demo`. These are the same accounts as the opsdesk-web seed.
 - Try the role-aware UI.
 - Turn on **Profile → Simulate offline**, reply to a ticket and change its status, then turn it off and watch the changes sync.
 
-To point the app at a real OpsDesk backend:
+To run against a real OpsDesk backend, start [opsdesk-web](https://github.com/ranazaid/opsdesk-web) locally. It uses an embedded PGlite database, so it needs no Postgres or Docker:
 
 ```bash
+# in opsdesk-web
+npm i && npm run db:seed && npm run dev      # http://localhost:3000
+
+# in opsdesk-mobile
 cp .env.example .env
-# set EXPO_PUBLIC_API_URL=https://your-opsdesk-host
+# EXPO_PUBLIC_API_URL=http://<your-LAN-IP>:3000   (a phone can't reach "localhost" on your computer)
 npx expo start --clear
 ```
 
@@ -250,20 +284,28 @@ npm run typecheck    # tsc --noEmit
 npm run verify       # all of the above
 ```
 
-There are **117 tests in 10 suites**, covering:
+Jest runs **98 tests in 10 suites**, plus **3 contract tests against a live opsdesk-web** that are skipped unless you point them at a server:
 
 | Suite | What it proves |
 | --- | --- |
-| `permissions/matrix` | Every role × permission cell, privileges never decrease from viewer to owner, and patch-level checks (agents can't reassign) |
+| `permissions/matrix` | The matrix is identical to opsdesk-web's (same lists per role), strictly hierarchical, viewers read-only, only non-viewers assignable, PATCH-level guards |
 | `offline/outbox` | Persistence across "restarts", corrupt-data recovery, FIFO replay, stop-on-retryable with backoff, max attempts, dropping permanent failures, single-flight, coalescing (never into the in-flight entry), optimistic overlay |
-| `api/httpClient` | URL/query building, bearer header, **401 → `unauthorized` + logout hook** (but not for login), **zod validation failure → `validation` error**, error-envelope normalisation, network/timeout mapping |
-| `api/mockApi` | Login/401s, cursor pagination without duplicates, filters and search, server-side permission enforcement, idempotent comments, ticket creation, AI summary, simulated offline |
+| `api/httpClient` | Bearer header, **401 → `unauthorized` + logout hook** (but not for login), **zod validation failure → `validation` error**, error envelopes, network/timeout mapping, and the opsdesk-web adapter: login mapping, `{ ticket }`/`{ comment }`/`{ members }` unwrapping, page/pageSize query, detail + thread merge, AI summary + reply |
+| `api/mockApi` | Same demo accounts as the web seed, 401s, page/pageSize/total pagination, filters and search, 403/422 like the server, customer/internal thread, ticket creation, AI summary, members, simulated offline |
 | `auth/AuthProvider` | Sign-in stores the token in secure storage, session restore, **automatic logout on 401** that clears storage and per-user data, manual sign-out |
 | `TicketListScreen` | **Renders tickets, filters by status chip**, debounced search plus empty state, infinite scroll, navigation, an offline status change leaving the filtered list |
-| `TicketDetailScreen` | Role-aware UI for viewer, agent and admin; offline reply shown as pending and synced on reconnect; optimistic status change; AI summary used as a reply; replay of a queue persisted before an app restart |
+| `TicketDetailScreen` | Role-aware UI (viewer read-only, agent reassigns, admin unassigns); offline reply shown as pending and synced on reconnect; optimistic status change; AI summary used as a reply; replay of a queue persisted before an app restart |
 | `notifications/deepLink`, `monitoring`, `utils/time` | Push payload → route (rejects unsafe ids and foreign URLs), monitoring no-ops when disabled, relative time formatting |
+| `api/opsdeskWeb.e2e` (opt-in) | The real HTTP adapter against a running opsdesk-web: the full agent flow, viewer 403, bad-token 401, bad-credentials login |
 
 Screen tests render the real provider stack (theme, API, query client, auth, sync) against the mock backend. They don't use snapshots.
+
+To run the contract tests against a live server:
+
+```bash
+# in opsdesk-web:    npm run db:seed && npm run dev
+OPSDESK_E2E_URL=http://localhost:3000 npm run test:e2e
+```
 
 ## CI
 
@@ -276,15 +318,8 @@ Screen tests render the real provider stack (theme, API, query client, auth, syn
 - **Creating tickets needs a connection.** Ticket numbers come from the server, so offline creation would need temporary IDs and remapping. That's deliberately out of scope.
 - **Demo mode data is in-memory.** It resets on reload. The outbox and query cache are still persisted, so the offline flows behave the same.
 - **On web, the session uses `sessionStorage`.** `expo-secure-store` has no web implementation. The web target is only used for previews and screenshots; iOS and Android use the Keychain/Keystore.
-- **The contract above doesn't yet match opsdesk-web exactly.** The two repos were built independently. The mobile app follows the contract documented above. opsdesk-web's current `/api/v1` differs in a few places:
-  - responses are wrapped (`{ ticket }`, `{ comment }`);
-  - lists use page/pageSize pagination instead of a cursor;
-  - login returns `accessToken` + `organization`;
-  - AI returns `{ text }`;
-  - its RBAC also lets agents assign tickets.
-
-  Pointing the app at it means updating the adapter in `src/api/httpApi.ts` and `src/api/schemas.ts`. Nothing else in the app needs to change. Demo mode is unaffected.
-- **`GET /members` and `POST /devices/push-token` aren't in opsdesk-web yet.** The app uses them for the assignee picker and push registration.
+- **Comment replays are at-least-once.** `POST /tickets/:id/comments` doesn't take an idempotency key yet. If the server stores a reply but the response is lost, the replay can post it twice.
+- **Push sending is server-side and not built.** The app registers tokens with opsdesk-web, but the sender isn't part of either repo yet.
 
 ## License
 
