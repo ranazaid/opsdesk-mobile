@@ -72,9 +72,11 @@ export function SyncProvider({ outbox, enabled, children }: SyncProviderProps) {
 
   const syncNow = useCallback(
     async (options?: { ignoreBackoff?: boolean }) => {
-      if (!canSyncRef.current || outbox.size === 0) return null;
+      if (!canSyncRef.current) return null;
       setIsSyncing(true);
       try {
+        await outbox.hydrate(); // a cold start may call this before the persisted queue is loaded
+        if (outbox.size === 0) return null;
         const result = await outbox.replay(executor, options);
         if (result.succeeded.length > 0) {
           trackAction('outbox.replayed', { count: result.succeeded.length });

@@ -9,6 +9,7 @@ export function SyncBanner() {
   const { colors, typography } = useTheme();
   const { isOnline, isSyncing, entries, droppedNotice, dismissDroppedNotice } = useSync();
   const pending = entries.length;
+  const label = `${pending} change${pending === 1 ? '' : 's'}`;
 
   if (droppedNotice) {
     return (
@@ -35,12 +36,12 @@ export function SyncBanner() {
     );
   }
 
-  if (pending > 0 || isSyncing) {
+  if (pending > 0) {
     return (
       <View style={[styles.banner, { backgroundColor: colors.infoSoft }]}>
         <Ionicons name="sync-outline" size={16} color={colors.info} />
         <Text style={[typography.caption, styles.text, { color: colors.info }]}>
-          Syncing {pending} change{pending === 1 ? '' : 's'}…
+          {isSyncing ? `Syncing ${label}…` : `${label} waiting to sync`}
         </Text>
       </View>
     );

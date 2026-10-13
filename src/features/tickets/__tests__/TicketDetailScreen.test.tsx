@@ -1,6 +1,9 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import { demoNetwork } from '@/offline/demoNetwork';
+import { Outbox } from '@/offline/outbox';
 import { renderWithProviders } from '@/test-utils/renderWithProviders';
 
 import { TicketDetailScreen } from '../TicketDetailScreen';
@@ -85,5 +88,26 @@ describe('TicketDetailScreen offline-first writes', () => {
     expect(await screen.findByText(/^Imran Siddiqui reports:/)).toBeOnTheScreen();
     await fireEvent.press(screen.getByText('Use as reply'));
     expect(screen.getByTestId('reply-input').props.value).toMatch(/^Hi Imran,/);
+  });
+
+  it('replays changes persisted before an app restart as soon as it starts online', async () => {
+    const storageKey = 'test.outbox.restart';
+    const beforeRestart = new Outbox({ storage: AsyncStorage, storageKey });
+    await beforeRestart.enqueue({ type: 'ticket.update', ticketId: TICKET_ID, patch: { status: 'pending' } });
+    await beforeRestart.enqueue({
+      type: 'comment.create',
+      ticketId: TICKET_ID,
+      body: 'Queued before the app was killed',
+      clientId: 'cmt_restart_1',
+      author: { id: 'usr_agent', name: 'Ayesha Khan' },
+    });
+
+    const afterRestart = new Outbox({ storage: AsyncStorage, storageKey });
+    const { api } = await renderWithProviders(<TicketDetailScreen ticketId={TICKET_ID} />, { role: 'agent', outbox: afterRestart });
+
+    await waitFor(() => expect(afterRestart.size).toBe(0));
+    const ticket = api.db.tickets.find((t) => t.id === TICKET_ID);
+    expect(ticket?.status).toBe('pending');
+    expect(api.db.comments.some((c) => c.body === 'Queued before the app was killed')).toBe(true);
   });
 });

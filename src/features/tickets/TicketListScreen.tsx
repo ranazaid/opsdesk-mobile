@@ -35,7 +35,7 @@ export function TicketListScreen() {
   const q = useDebouncedValue(search.trim(), 300);
 
   const filters = useMemo(() => ({ status, q }), [status, q]);
-  const { tickets, isPending, isError, error, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } = useTicketList(filters);
+  const { tickets, isPending, isError, error, refetch, fetchStatus, fetchNextPage, hasNextPage, isFetchingNextPage } = useTicketList(filters);
   const [manualRefresh, setManualRefresh] = useState(false);
 
   const pendingTicketIds = useMemo(() => new Set(entries.map((entry) => entry.op.ticketId)), [entries]);
@@ -100,7 +100,9 @@ export function TicketListScreen() {
         </ScrollView>
       </View>
 
-      {isPending ? (
+      {isPending && fetchStatus === 'paused' ? (
+        <EmptyState icon="cloud-offline-outline" title="You're offline" message="These results haven't been loaded on this device yet. They'll appear when you reconnect." />
+      ) : isPending ? (
         <LoadingState label="Loading tickets…" />
       ) : isError && tickets.length === 0 ? (
         <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} />

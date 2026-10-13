@@ -17,7 +17,7 @@ import { PriorityBadge, StatusBadge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { Chip } from '@/components/ui/Chip';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
-import { ErrorState, LoadingState } from '@/components/ui/StateViews';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/StateViews';
 import type { DisplayComment } from '@/offline/pending';
 import { useSync } from '@/offline/SyncProvider';
 import { can, canEdit } from '@/permissions/matrix';
@@ -34,7 +34,7 @@ export function TicketDetailScreen({ ticketId }: { ticketId: string }) {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { isOnline, syncNow } = useSync();
-  const { ticket, comments, hasPending, isPending, isError, error, refetch } = useTicket(ticketId);
+  const { ticket, comments, hasPending, isPending, isError, error, refetch, fetchStatus } = useTicket(ticketId);
   const actions = useTicketActions(ticketId, user);
   const role = user?.role;
   const members = useMembers(role);
@@ -59,6 +59,10 @@ export function TicketDetailScreen({ ticketId }: { ticketId: string }) {
     [actions],
   );
 
+  // Never opened before and no connection: TanStack pauses the query instead of failing it.
+  if (isPending && fetchStatus === 'paused') {
+    return <EmptyState icon="cloud-offline-outline" title="Not available offline" message="This ticket hasn't been opened on this device yet. It will load as soon as you're back online." />;
+  }
   if (isPending) return <LoadingState label="Loading ticket…" />;
   if (!ticket) return <ErrorState message={isError ? errorMessage(error) : 'Ticket not found.'} onRetry={() => void refetch()} />;
 
