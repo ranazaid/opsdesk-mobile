@@ -1,0 +1,34 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 6 * * 1' # weekly, Monday 06:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  snyk:
+    name: Snyk dependency scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run Snyk
+        uses: snyk/actions/node@master
+        # Report-only until the SNYK_TOKEN secret is configured and the baseline is triaged.
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --all-projects

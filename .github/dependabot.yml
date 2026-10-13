@@ -1,0 +1,25 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      # Expo SDK packages must move together; upgrade them with `npx expo install --fix`.
+      expo-sdk:
+        patterns: ['expo', 'expo-*', '@expo/*', 'react-native', 'react-native-*', 'react', 'react-dom', 'jest-expo']
+      tanstack:
+        patterns: ['@tanstack/*']
+      dev-tooling:
+        dependency-type: development
+        patterns: ['*']
+    ignore:
+      # Major Expo SDK upgrades are done deliberately, not by bot.
+      - dependency-name: 'expo'
+        update-types: ['version-update:semver-major']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
