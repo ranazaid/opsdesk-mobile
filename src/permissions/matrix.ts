@@ -1,12 +1,12 @@
 import type { Role, UpdateTicketInput } from '@/api/schemas';
 
 /**
- * Role-based permission matrix shared with the OpsDesk web app.
+ * Role-based permission matrix for the mobile client.
  *
- * This file is intentionally dependency-free and data-driven so it can be kept
- * byte-for-byte identical with `opsdesk-web/src/lib/permissions.ts`. The server
- * enforces the same matrix; the client uses it only to decide what to *show*.
- * (The demo mock API enforces it too, so the demo behaves like production.)
+ * Intentionally dependency-free and data-driven so it can be shared with (or
+ * generated from) the backend's matrix. The server is the security boundary;
+ * the client uses this only to decide what to *show*. The demo mock API
+ * enforces it too, so demo mode behaves like production.
  */
 export const PERMISSIONS = {
   'ticket.view': ['owner', 'admin', 'agent', 'viewer'],
