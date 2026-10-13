@@ -1,73 +1,94 @@
-import { ROLES, type Role } from '@/api/schemas';
+import { ROLES } from '@/api/schemas';
 
-import { can, canApplyPatch, canEdit, PERMISSION_LABELS, PERMISSIONS, permissionsFor, type Permission } from '../matrix';
+import { can, canApplyPatch, canEdit, isAssignable, MOBILE_PERMISSIONS, PERMISSION_MATRIX, PERMISSIONS, permissionsFor } from '../matrix';
 
 /**
- * The expected matrix is spelled out explicitly (not derived from PERMISSIONS)
- * so any change to who-can-do-what has to be made deliberately in two places.
+ * Pins the mobile copy of the matrix to opsdesk-web's `src/lib/permissions.ts`
+ * (and its `tests/rbac.test.ts`). The expected lists are spelled out so any
+ * change to who-can-do-what must be made deliberately in both repos.
  */
-const EXPECTED: Record<Permission, Record<Role, boolean>> = {
-  'ticket.view': { owner: true, admin: true, agent: true, viewer: true },
-  'ticket.create': { owner: true, admin: true, agent: true, viewer: false },
-  'ticket.reply': { owner: true, admin: true, agent: true, viewer: false },
-  'ticket.changeStatus': { owner: true, admin: true, agent: true, viewer: false },
-  'ticket.changePriority': { owner: true, admin: true, agent: true, viewer: false },
-  'ticket.reassign': { owner: true, admin: true, agent: false, viewer: false },
-  'ai.summarize': { owner: true, admin: true, agent: true, viewer: false },
-  'members.view': { owner: true, admin: true, agent: true, viewer: true },
-};
-
-describe('permission matrix', () => {
-  const cases = (Object.keys(EXPECTED) as Permission[]).flatMap((permission) =>
-    ROLES.map((role) => [permission, role, EXPECTED[permission][role]] as const),
-  );
-
-  it.each(cases)('%s for %s -> %s', (permission, role, allowed) => {
-    expect(can(role, permission)).toBe(allowed);
+describe('permission matrix (mirrors opsdesk-web)', () => {
+  it('defines every role', () => {
+    expect(Object.keys(PERMISSION_MATRIX).sort()).toEqual([...ROLES].sort());
   });
 
-  it('covers every permission with a label and an expectation', () => {
-    expect(Object.keys(PERMISSIONS).sort()).toEqual(Object.keys(EXPECTED).sort());
-    expect(Object.keys(PERMISSION_LABELS).sort()).toEqual(Object.keys(EXPECTED).sort());
+  it('gives owners every permission', () => {
+    expect(permissionsFor('owner')).toEqual([...PERMISSIONS]);
   });
 
-  it('denies everything when there is no role (signed out)', () => {
-    expect(can(null, 'ticket.view')).toBe(false);
-    expect(can(undefined, 'ticket.reply')).toBe(false);
+  it('matches the documented matrix', () => {
+    expect(permissionsFor('admin')).toEqual([
+      'ticket:read',
+      'ticket:create',
+      'ticket:update',
+      'ticket:assign',
+      'comment:create',
+      'comment:internal',
+      'ai:use',
+      'audit:read',
+      'member:read',
+      'member:invite',
+      'member:update_role',
+      'member:remove',
+      'billing:read',
+    ]);
+    expect(permissionsFor('agent')).toEqual([
+      'ticket:read',
+      'ticket:create',
+      'ticket:update',
+      'ticket:assign',
+      'comment:create',
+      'comment:internal',
+      'ai:use',
+      'audit:read',
+      'member:read',
+    ]);
+    expect(permissionsFor('viewer')).toEqual(['ticket:read', 'audit:read', 'member:read']);
   });
 
-  it('viewers are read-only; agents and above can edit', () => {
-    expect(canEdit('viewer')).toBe(false);
-    expect(canEdit('agent')).toBe(true);
-    expect(canEdit('admin')).toBe(true);
-    expect(permissionsFor('viewer')).toEqual(['ticket.view', 'members.view']);
-  });
-
-  it('privileges are monotonic: owner >= admin >= agent >= viewer', () => {
-    const order: Role[] = ['viewer', 'agent', 'admin', 'owner'];
+  it('is strictly hierarchical: each role has a superset of the role below', () => {
+    const order = ['viewer', 'agent', 'admin', 'owner'] as const;
     for (let i = 1; i < order.length; i += 1) {
-      const lower = new Set(permissionsFor(order[i - 1]!));
-      const higher = new Set(permissionsFor(order[i]!));
-      lower.forEach((permission) => expect(higher.has(permission)).toBe(true));
+      const lower = permissionsFor(order[i - 1]!);
+      const higher = permissionsFor(order[i]!);
+      expect(higher).toEqual(expect.arrayContaining(lower));
+      expect(higher.length).toBeGreaterThan(lower.length);
     }
   });
 
-  describe('canApplyPatch', () => {
-    it('lets agents change status and priority but not reassign', () => {
-      expect(canApplyPatch('agent', { status: 'resolved' })).toBe(true);
-      expect(canApplyPatch('agent', { priority: 'urgent' })).toBe(true);
-      expect(canApplyPatch('agent', { assigneeId: 'usr_2' })).toBe(false);
-      expect(canApplyPatch('agent', { status: 'pending', assigneeId: null })).toBe(false);
-    });
+  it('denies writes and AI to viewers', () => {
+    for (const permission of ['ticket:create', 'ticket:update', 'ticket:assign', 'comment:create', 'ai:use'] as const) {
+      expect(can('viewer', permission)).toBe(false);
+    }
+    expect(canEdit('viewer')).toBe(false);
+    expect(canEdit('agent')).toBe(true);
+  });
 
-    it('lets admins and owners reassign or unassign', () => {
-      expect(canApplyPatch('admin', { assigneeId: 'usr_2' })).toBe(true);
-      expect(canApplyPatch('owner', { assigneeId: null })).toBe(true);
-    });
+  it('denies everything when there is no role (signed out)', () => {
+    expect(can(null, 'ticket:read')).toBe(false);
+    expect(can(undefined, 'comment:create')).toBe(false);
+  });
 
-    it('rejects viewers and empty patches', () => {
-      expect(canApplyPatch('viewer', { status: 'resolved' })).toBe(false);
-      expect(canApplyPatch('owner', {})).toBe(false);
-    });
+  it('only shows labels for real permissions', () => {
+    expect(MOBILE_PERMISSIONS.every(({ permission }) => (PERMISSIONS as readonly string[]).includes(permission))).toBe(true);
+  });
+
+  it('only lets non-viewers be assigned tickets', () => {
+    expect(ROLES.filter(isAssignable)).toEqual(['owner', 'admin', 'agent']);
+  });
+});
+
+describe('canApplyPatch (mirrors PATCH /tickets/:id guards)', () => {
+  it('lets agents change status and priority and (re)assign', () => {
+    expect(canApplyPatch('agent', { status: 'resolved' })).toBe(true);
+    expect(canApplyPatch('agent', { priority: 'urgent' })).toBe(true);
+    expect(canApplyPatch('agent', { assigneeId: 'u2' })).toBe(true);
+    expect(canApplyPatch('agent', { assigneeId: null })).toBe(true);
+  });
+
+  it('rejects viewers and empty patches', () => {
+    expect(canApplyPatch('viewer', { status: 'resolved' })).toBe(false);
+    expect(canApplyPatch('viewer', { assigneeId: 'u2' })).toBe(false);
+    expect(canApplyPatch('owner', {})).toBe(false);
   });
 });

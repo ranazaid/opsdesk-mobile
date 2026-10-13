@@ -1,36 +1,59 @@
 import type { Role, UpdateTicketInput } from '@/api/schemas';
 
 /**
- * Role-based permission matrix for the mobile client.
- *
- * Intentionally dependency-free and data-driven so it can be shared with (or
- * generated from) the backend's matrix. The server is the security boundary;
- * the client uses this only to decide what to *show*. The demo mock API
- * enforces it too, so demo mode behaves like production.
+ * RBAC permission matrix, mirrored from opsdesk-web's single source of truth
+ * (`src/lib/permissions.ts`). The server enforces it on every request; the app
+ * reads it only to decide which controls to show. `GET /me` also returns the
+ * caller's permissions, and the test suite pins this copy to the same table.
  */
-export const PERMISSIONS = {
-  'ticket.view': ['owner', 'admin', 'agent', 'viewer'],
-  'ticket.create': ['owner', 'admin', 'agent'],
-  'ticket.reply': ['owner', 'admin', 'agent'],
-  'ticket.changeStatus': ['owner', 'admin', 'agent'],
-  'ticket.changePriority': ['owner', 'admin', 'agent'],
-  'ticket.reassign': ['owner', 'admin'],
-  'ai.summarize': ['owner', 'admin', 'agent'],
-  'members.view': ['owner', 'admin', 'agent', 'viewer'],
-} as const satisfies Record<string, readonly Role[]>;
+export const PERMISSIONS = [
+  'ticket:read',
+  'ticket:create',
+  'ticket:update',
+  'ticket:assign',
+  'comment:create',
+  'comment:internal',
+  'ai:use',
+  'audit:read',
+  'member:read',
+  'member:invite',
+  'member:update_role',
+  'member:remove',
+  'billing:read',
+  'billing:manage',
+] as const;
 
-export type Permission = keyof typeof PERMISSIONS;
+export type Permission = (typeof PERMISSIONS)[number];
 
-export const PERMISSION_LABELS: Record<Permission, string> = {
-  'ticket.view': 'View tickets and conversations',
-  'ticket.create': 'Create tickets',
-  'ticket.reply': 'Reply to customers',
-  'ticket.changeStatus': 'Change ticket status',
-  'ticket.changePriority': 'Change ticket priority',
-  'ticket.reassign': 'Reassign tickets to teammates',
-  'ai.summarize': 'Generate AI summaries',
-  'members.view': 'See team members',
+const VIEWER: readonly Permission[] = ['ticket:read', 'audit:read', 'member:read'];
+
+const AGENT: readonly Permission[] = [
+  ...VIEWER,
+  'ticket:create',
+  'ticket:update',
+  'ticket:assign',
+  'comment:create',
+  'comment:internal',
+  'ai:use',
+];
+
+const ADMIN: readonly Permission[] = [...AGENT, 'member:invite', 'member:update_role', 'member:remove', 'billing:read'];
+
+export const PERMISSION_MATRIX: Readonly<Record<Role, ReadonlySet<Permission>>> = {
+  owner: new Set(PERMISSIONS),
+  admin: new Set(ADMIN),
+  agent: new Set(AGENT),
+  viewer: new Set(VIEWER),
 };
+
+export function can(role: Role | null | undefined, permission: Permission): boolean {
+  if (!role) return false;
+  return PERMISSION_MATRIX[role].has(permission);
+}
+
+export function permissionsFor(role: Role): Permission[] {
+  return PERMISSIONS.filter((permission) => can(role, permission));
+}
 
 export const ROLE_LABELS: Record<Role, string> = {
   owner: 'Owner',
@@ -39,30 +62,35 @@ export const ROLE_LABELS: Record<Role, string> = {
   viewer: 'Viewer',
 };
 
-export function can(role: Role | null | undefined, permission: Permission): boolean {
-  if (!role) return false;
-  return (PERMISSIONS[permission] as readonly Role[]).includes(role);
-}
-
-export function permissionsFor(role: Role): Permission[] {
-  return (Object.keys(PERMISSIONS) as Permission[]).filter((permission) => can(role, permission));
-}
+/** The permissions that change what the mobile app shows, with user-facing labels. */
+export const MOBILE_PERMISSIONS: readonly { permission: Permission; label: string }[] = [
+  { permission: 'ticket:read', label: 'View tickets and conversations' },
+  { permission: 'ticket:create', label: 'Create tickets' },
+  { permission: 'comment:create', label: 'Reply to customers' },
+  { permission: 'ticket:update', label: 'Change status and priority' },
+  { permission: 'ticket:assign', label: 'Assign tickets' },
+  { permission: 'ai:use', label: 'Use AI summaries and drafts' },
+  { permission: 'member:read', label: 'See team members' },
+];
 
 /** True when the role can change anything at all (viewers are read-only). */
 export function canEdit(role: Role | null | undefined): boolean {
-  return can(role, 'ticket.reply') || can(role, 'ticket.changeStatus');
+  return can(role, 'ticket:update') || can(role, 'comment:create');
 }
 
-/** Maps a PATCH /tickets/:id body to the permissions it requires. */
+/** Roles that can be assigned tickets (the server rejects assigning to viewers). */
+export function isAssignable(role: Role): boolean {
+  return can(role, 'ticket:update');
+}
+
+/** Mirrors the server's checks for PATCH /tickets/:id. */
 export function requiredPermissionsForPatch(patch: UpdateTicketInput): Permission[] {
-  const required: Permission[] = [];
-  if (patch.status !== undefined) required.push('ticket.changeStatus');
-  if (patch.priority !== undefined) required.push('ticket.changePriority');
-  if (patch.assigneeId !== undefined) required.push('ticket.reassign');
+  const required: Permission[] = ['ticket:update'];
+  if (patch.assigneeId !== undefined) required.push('ticket:assign');
   return required;
 }
 
 export function canApplyPatch(role: Role | null | undefined, patch: UpdateTicketInput): boolean {
-  const required = requiredPermissionsForPatch(patch);
-  return required.length > 0 && required.every((permission) => can(role, permission));
+  const hasChange = Object.values(patch).some((value) => value !== undefined);
+  return hasChange && requiredPermissionsForPatch(patch).every((permission) => can(role, permission));
 }
